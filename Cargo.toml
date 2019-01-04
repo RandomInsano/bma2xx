@@ -4,5 +4,11 @@ version = "0.1.0"
 authors = ["Edwin Amsler <edwinguy@gmail.com>"]
 edition = "2018"
 
+categories = ["embedded", "hardware-support", "no-std"]
+description = "A hardware-level platform agnostic driver for Bosch BMA2XX series accelerometers"
+keywords = ["embedded-hal-driver", "accelerometer"]
+license = "MIT"
+repository = "https://github.com/RandomInsano/bma2xx"
+
 [dependencies]
 embedded-hal = "0.2.2"
