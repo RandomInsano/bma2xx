@@ -1,5 +1,5 @@
-//! Driver for the Bosch BMA222E
-//! =============================
+//! Driver for the Bosch BMA222E and family
+//! ==========================================
 //! Currently this only support I2C configuration as I can't remove
 //! the itty bitty package from its home on a populated PCB. If you
 //! want to play with one, you can find them in Xfinity XR11 remote
@@ -14,9 +14,10 @@
 //! * BMA253 - 12bit resolution
 //! * BMA255 - 12bit resolution
 //! * BMA280 - 14bit resolution
-//! * BMA422 - 12bit resolution
-//! * BMA455 - 16bit resolution
 //!
+//! Specifically, these chips should work with the library now, but
+//! you wouldn't benefit from the enhanced resolution.
+//! 
 //! More info on the product line from Bosch's website:
 //! https://www.bosch-sensortec.com/bst/products/all_products/bma222e
 //!
