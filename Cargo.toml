@@ -1,5 +1,5 @@
 [package]
-name = "bma-accel"
+name = "bma2xx"
 version = "0.1.0"
 authors = ["Edwin Amsler <edwinguy@gmail.com>"]
 edition = "2018"
