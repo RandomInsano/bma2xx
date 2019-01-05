@@ -12,3 +12,9 @@ repository = "https://github.com/RandomInsano/bma2xx"
 
 [dependencies]
 embedded-hal = "0.2.2"
+
+[dev-dependencies]
+
+[target.'cfg(unix)'.dev-dependencies]
+linux-embedded-hal = "0.2.0"
+
