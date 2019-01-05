@@ -60,4 +60,3 @@ fn main() {
         thread::sleep(sleep_time);
     }
 }
-
