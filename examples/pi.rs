@@ -16,8 +16,10 @@ use bma2xx::{
 
 fn main() {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let mut accel = Bma2xx::new(i2c);
-    let sleep_time = time::Duration::from_millis(20); // How long between axis readings
+    // On real hardware, development was done with the alternate address
+    let mut accel = Bma2xx::new(i2c, bma2xx::Address::Alternate);
+    // How long between axis readings
+    let sleep_time = time::Duration::from_millis(20);
 
     accel.reset().unwrap();
 
@@ -45,14 +47,6 @@ fn main() {
     let mut events = [AxisData {value: 0, changed: false}; 3];
     accel.fifo_set_mode(FIFOConfig::BYPASS).unwrap();
     accel.fifo_get(&mut events).unwrap();
-
-    let x = accel.axis_x().unwrap();
-    let y = accel.axis_y().unwrap();
-    let z = accel.axis_z().unwrap();
-    println!("X:{0:03} Y:{1:03} Z:{2:03}",
-        x.value,
-        y.value,
-        z.value);
 
     loop {
         let x = accel.axis_x().unwrap();
