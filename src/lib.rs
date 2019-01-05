@@ -61,14 +61,14 @@
 //! fn main() {
 //!     // Get an instance of an i2c struct here with one of the [device crates](https://github.com/rust-embedded/awesome-embedded-rust#device-crates).
 //!
-//!     let mut accel = Bma222e::new(i2c);
+//!     let mut accel = Bma2xx::new(i2c);
 //!
 //!     accel.reset().unwrap();
 //!
 //!     examples(accel).unwrap();
 //! }
 //!
-//! fn examples(accel: Bma222e) -> Result<(), ()> {
+//! fn examples(accel: Bma2xx) -> Result<(), ()> {
 //!     let chip_id = accel.who_am_i()?;
 //!     println!("About to Begin. ID is {} and should be {}", chip_id, bma222e::IDENTIFIER)?;
 //!
@@ -115,14 +115,6 @@ extern crate embedded_hal as hal;
 use core::fmt;
 use hal::blocking::i2c::{Write, WriteRead};
 
-/// Create an instance of the accelerometer
-pub struct Bma222e<I2C> {
-    device: I2C,
-}
-
-/// The address on the bus. TODO: Support alt addresses
-pub const ADDRESS: u8 = 0x19;
-
 /// This identifier changes based on the product in the range.
 pub const IDENTIFIER: u8 = 0xF8;
 
@@ -161,6 +153,21 @@ pub enum FIFOAxis {
 }
 */
 
+/// Possible I2C addresses
+#[derive(Clone)]
+pub enum Address {
+    /// The address when SDO pin low
+    Default = 0x18,
+    /// The address when SDO pin high
+    Alternate = 0x19,
+}
+
+/// Create an instance of the accelerometer
+pub struct Bma2xx<I2C> {
+    device: I2C,
+    address: Address,
+}
+
 #[derive(Copy, Clone)]
 /// Holds accelerometer data
 pub struct AxisData {
@@ -176,13 +183,16 @@ impl fmt::Display for AxisData {
     }
 }
 
-impl<I2C, E> Bma222e<I2C>
+impl<I2C, E> Bma2xx<I2C>
 where
     I2C: WriteRead<Error = E> + Write<Error = E>,
 {
     /// Create a new instance for fun and profit!
-    pub fn new(dev: I2C) -> Self {
-        Self { device: dev }
+    pub fn new(device: I2C, address: Address) -> Self {
+        Self {
+            device,
+            address,
+        }
     }
 
     /// Helper to load / unload buffers to send along
@@ -196,14 +206,14 @@ where
         input[1..=data.len()].copy_from_slice(data);
         input[0] = register;
 
-        self.device.write(ADDRESS, &input)?;
+        self.device.write(self.address.clone() as u8, &input)?;
 
         Ok(())
     }
 
     /// Helper to load / unload buffers to send along
     fn read(&mut self, register: u8, data: &mut [u8]) -> Result<(), E> {
-        self.device.write_read(ADDRESS, &[register], data)?;
+        self.device.write_read(self.address.clone() as u8, &[register], data)?;
 
         Ok(())
     }
@@ -218,7 +228,7 @@ where
     /// Soft-reset the chip
     pub fn reset(&mut self) -> Result<(), E> {
         // Magic value for the reset is 0xB6
-        self.write(ADDRESS, &[REG_RESET, 0xB6])?;
+        self.write(self.address.clone() as u8, &[REG_RESET, 0xB6])?;
         Ok(())
     }
 
