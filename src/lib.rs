@@ -1,9 +1,8 @@
 //! Driver for the Bosch BMA222E and family
 //! ==========================================
-//! Currently this only support I2C configuration as I can't remove
-//! the itty bitty package from its home on a populated PCB. If you
-//! want to play with one, you can find them in Xfinity XR11 remote
-//! controls. 😊
+//! Currently, the BMA222E and BMA253 are explicitly supported. Other chips can
+//! be supported fairly easily by implementing the Bma2xx trait with the correct
+//! values from the related data sheet.
 //!
 //! The register maps in this family are very similar and so it
 //! should be possible to support the following chips with minimal
@@ -23,13 +22,14 @@
 //!
 //! ### What's currently supported
 //!
-//! 1. Accessing the chip via I2C
+//! 1. Accessing the chip via I2C and via SPI
 //! 2. Reading X, Y, Z axis and whether they've updated since last poll
 //! 3. Reading the event FIFO for X, Y, Z axis (32 element deep queue version of #1)
 //! 4. Changing FIFO mode (stream, fifo, bypass) and reading how full the FIFO is
 //! 5. Checking what data is in the EEPROM and how many writes it has left
 //! 6. Software reset
 //! 7. Reading temperature
+//! 8. Tap detection
 //!
 //! ### What's *not* currently supported
 //!
@@ -37,23 +37,21 @@
 //! and help implement these features. I just didn't need any of them
 //! personally.
 //!
-//! 1. Any chip other than the BMA222E
-//! 2. Accessing the chip via SPI
-//! 3. Changing which axis are thrown on the FIFO
-//! 4. Enabling interrupts for slope, tap, FIFO full, orientation, etc
-//! 5. Tap detection
-//! 6. Acceleration data filters
-//! 7. Power modes (normal, deep sleep, low power, suspend)
-//! 8. Lower power sleep duration
-//! 9. Whether to shadow acceleration data or not
-//! 10. Configuration of the INT1 and INT2 pins nor their sources
-//! 11. Interrupt thresholds for acceleration, slope, etc
-//! 12. FIFO watermark interrupt level
-//! 13. Self-test
-//! 14. Actually programming the EEPROM or setting the values
-//! 15. Setting the offset compensation
-//! 16. Offset compensation
-//! 17. And many more!
+//! 1. Any chip other than the BMA222E and BMA253
+//! 2. Changing which axis are thrown on the FIFO
+//! 3. Enabling interrupts for slope, tap, FIFO full, orientation, etc
+//! 4. Acceleration data filters
+//! 5. Power modes (normal, deep sleep, low power, suspend)
+//! 6. Lower power sleep duration
+//! 7. Whether to shadow acceleration data or not
+//! 8. Configuration of the INT1 and INT2 pins nor their sources
+//! 9. Interrupt thresholds for acceleration, slope, etc
+//! 10. FIFO watermark interrupt level
+//! 11. Self-test
+//! 12. Actually programming the EEPROM or setting the values
+//! 13. Setting the offset compensation
+//! 14. Offset compensation
+//! 15. And many more!
 //!
 //!
 //! ### Example usage:
@@ -61,7 +59,9 @@
 //! fn main() {
 //!     // Get an instance of an i2c struct here with one of the [device crates](https://github.com/rust-embedded/awesome-embedded-rust#device-crates).
 //!
-//!     let mut accel = Bma222e::new(i2c);
+//!     use bma2xx::{interface, Accelerometer, Bma222e};
+//!     let interface = interface::I2CInterface(i2c, interface::I2C_DEFAULT_ADDRESS);
+//!     let mut accel = Accelerometer::new(interface, Bma222e{});
 //!
 //!     accel.reset().unwrap();
 //!
@@ -112,34 +112,66 @@
 
 extern crate embedded_hal as hal;
 
-use core::fmt;
-use hal::blocking::i2c::{Write, WriteRead};
+pub mod interface;
+pub mod register;
 
-/// Create an instance of the accelerometer
-pub struct Bma222e<I2C> {
-    device: I2C,
+use core::fmt;
+//use hal::blocking::{i2c, spi};
+use crate::register::Reg;
+use crate::interface::DigitalInterface;
+
+const MAX_NVM_LENGTH: usize = 8;
+
+/// Implements chip-specific values.
+pub trait Bma2xx {
+    /// The chip ID that should be the result of read(Reg::BGW_CHIPID).
+    const CHIPID: u8;
+    /// The number of registers belonging to the non-volatile memory.
+    const NVM_LENGTH: usize;
+    /// The first register belonging to the non-volatile memory.
+    const NVM_START: Reg;
+    /// The width in bits of the acceleration data.
+    const DATA_WIDTH: usize;
 }
 
-/// The address on the bus. TODO: Support alt addresses
-pub const ADDRESS: u8 = 0x19;
+/// The BMA253 digital triaxial acceleration sensor.
+pub struct Bma253 {}
 
-/// This identifier changes based on the product in the range.
-pub const IDENTIFIER: u8 = 0xF8;
+impl Bma2xx for Bma253 {
+    const CHIPID: u8 = 0xfa;
+    const NVM_LENGTH: usize = 5;
+    const NVM_START: Reg = Reg::OFC_OFFSET_X;
+    const DATA_WIDTH: usize = 12;
+}
 
-/// How long the NVM register bank is (differs between BMA222 and BMA222E)
-const EEPROM_LENGTH: usize = 5;
+/// The BMA222E digital triaxial acceleration sensor.
+pub struct Bma222e {}
 
-const REG_CHIPID: u8 = 0x00;
-const REG_XAXIS: u8 = 0x02;
-const REG_YAXIS: u8 = 0x04;
-const REG_ZAXIS: u8 = 0x06;
-const REG_TEMPERATURE: u8 = 0x08;
-const REG_FIFO_STATUS: u8 = 0x0E;
-const REG_RESET: u8 = 0x14;
-const REG_EEPROM_CONTROL: u8 = 0x33;
-const REG_EEPROM_START: u8 = 0x38;
-const REG_FIFO_CONFIG: u8 = 0x3E;
-const REG_FIFO_DATA: u8 = 0x3F;
+impl Bma2xx for Bma222e {
+    const CHIPID: u8 = 0xf8;
+    const NVM_LENGTH: usize = 5;
+    const NVM_START: Reg = Reg::OFC_OFFSET_X;
+    const DATA_WIDTH: usize = 8;
+}
+
+/// A usable BMA2xx accelerometer.
+pub struct Accelerometer<DigitalInterface, Bma2xx> {
+    interface: DigitalInterface,
+    _device: Bma2xx,
+}
+
+impl<I, B> Accelerometer<I, B> {
+    /// Combine a digital interface and a device specification to create a
+    /// usable accelerometer.
+    pub fn new(interface: I, device: B) -> Accelerometer<I, B> {
+        Accelerometer{
+            interface: interface,
+            _device: device,
+        }
+    }
+}
+
+const RESET_MAGIC_VALUE: u8 = 0xb6;
 
 /// Various FIFO operating modes
 pub enum FIFOConfig {
@@ -161,7 +193,7 @@ pub enum FIFOAxis {
 }
 */
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 /// Holds accelerometer data
 pub struct AxisData {
     /// What the value was when the accelerometer was sampled
@@ -176,83 +208,151 @@ impl fmt::Display for AxisData {
     }
 }
 
-impl<I2C, E> Bma222e<I2C>
+#[allow(missing_docs)]
+#[derive(Copy, Clone, Debug)]
+pub enum TapShockDuration {
+    _50ms = 0,
+    _75ms = 1,
+}
+
+#[allow(missing_docs)]
+#[derive(Copy, Clone, Debug)]
+pub enum TapQuietDuration {
+    _30ms = 0,
+    _20ms = 1,
+}
+
+#[allow(missing_docs)]
+#[derive(Copy, Clone, Debug)]
+pub enum DoubleTapDuration {
+    _50ms = 0,
+    _100ms = 1,
+    _150ms = 2,
+    _200ms = 3,
+    _250ms = 4,
+    _375ms = 5,
+    _500ms = 6,
+    _700ms = 7,
+}
+
+#[allow(missing_docs)]
+#[derive(Copy, Clone, Debug)]
+pub enum TapWakeupSamples {
+    _2samples = 0,
+    _4samples = 1,
+    _8samples = 2,
+    _16samples = 3,
+}
+
+/// Configuration for tap sensing.
+#[derive(Copy, Clone, Debug)]
+pub struct TapSensingConfig {
+    /// Whether interrupts for a single tap are enabled.
+    pub single_tap_enabled: bool,
+    /// Whether interrupts for a double tap are enabled.
+    pub double_tap_enabled: bool,
+    /// Acceleration needed to register as a tap, in units of range/32.
+    pub tap_threshold: u8,
+    /// The number of samples to process after a low-power mode wake-up.
+    pub tap_wakeup_samples: TapWakeupSamples,
+    /// The maximum duration the shock can last for it to register as a tap.
+    pub tap_shock_duration: TapShockDuration,
+    /// The minimum time for the acceleration to stay quiet after the shock for
+    /// a tap to register.
+    pub tap_quiet_duration: TapQuietDuration,
+    /// The maximum time between taps to register as a double tap.
+    pub double_tap_duration: DoubleTapDuration,
+    /// Whether to map single tap interrupts to interrupt pin 1.
+    pub map_single_to_int1: bool,
+    /// Whether to map double tap interrupts to interrupt pin 1.
+    pub map_double_to_int1: bool,
+    /// Whether to map single tap interrupts to interrupt pin 2.
+    pub map_single_to_int2: bool,
+    /// Whether to map double tap interrupts to interrupt pin 2.
+    pub map_double_to_int2: bool,
+}
+
+impl Default for TapSensingConfig {
+    fn default() -> TapSensingConfig {
+        TapSensingConfig {
+            single_tap_enabled: false,
+            double_tap_enabled: false,
+            tap_threshold: 10,
+            tap_wakeup_samples: TapWakeupSamples::_2samples,
+            tap_shock_duration: TapShockDuration::_50ms,
+            tap_quiet_duration: TapQuietDuration::_30ms,
+            double_tap_duration: DoubleTapDuration::_250ms,
+            map_single_to_int1: false,
+            map_double_to_int1: false,
+            map_single_to_int2: false,
+            map_double_to_int2: false,
+        }
+    }
+}
+
+impl<I, E, B> Accelerometer<I, B>
 where
-    I2C: WriteRead<Error = E> + Write<Error = E>,
+    I: DigitalInterface<Error = E>,
+    B: Bma2xx,
 {
-    /// Create a new instance for fun and profit!
-    pub fn new(dev: I2C) -> Self {
-        Self { device: dev }
-    }
-
-    /// Helper to load / unload buffers to send along
-    fn write(&mut self, register: u8, data: &[u8]) -> Result<(), E> {
-        let mut input = [0u8; 16]; // Can't dynamically size this, so 16 it is!
-        assert!(
-            data.len() < 16 - 1,
-            "write() can only take buffers up to 15 bytes ☹️"
-        );
-
-        input[1..=data.len()].copy_from_slice(data);
-        input[0] = register;
-
-        self.device.write(ADDRESS, &input)?;
-
-        Ok(())
-    }
-
-    /// Helper to load / unload buffers to send along
-    fn read(&mut self, register: u8, data: &mut [u8]) -> Result<(), E> {
-        self.device.write_read(ADDRESS, &[register], data)?;
-
-        Ok(())
-    }
-
-    /// Helper to grab single byte registers
-    fn single_read(&mut self, register: u8) -> Result<u8, E> {
-        let mut out = [0u8; 1];
-        self.read(register, &mut out)?;
-        Ok(out[0])
-    }
-
     /// Soft-reset the chip
     pub fn reset(&mut self) -> Result<(), E> {
-        // Magic value for the reset is 0xB6
-        self.write(ADDRESS, &[REG_RESET, 0xB6])?;
-        Ok(())
+        self.interface.write(Reg::BGW_SOFTRESET, RESET_MAGIC_VALUE)
     }
 
-    /// Read the temperature of the chip
+    /// Read the temperature of the chip and return it in half Kelvins above 23
+    /// degrees Celsius.
     pub fn temperature(&mut self) -> Result<u8, E> {
-        let value = self.single_read(REG_TEMPERATURE)?;
-        Ok(value.wrapping_add(23))
+        let value = self.interface.read(Reg::ACCD_TEMP)?;
+        Ok(value)
     }
 
     /// Return the chip's identifier. While there are many devices in this
     /// family, this crate was written for the BMA222E and you should
     /// compare this value to REG_CHIPID.
     pub fn who_am_i(&mut self) -> Result<u8, E> {
-        Ok(self.single_read(REG_CHIPID)?)
+        Ok(self.interface.read(Reg::BGW_CHIPID)?)
+    }
+
+    /// Configure tap sensing.
+    pub fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), E> {
+        let int_en_0 = self.interface.read(Reg::INT_EN_0)?
+            | (cfg.single_tap_enabled as u8) << 5
+            | (cfg.double_tap_enabled as u8) << 4;
+        self.interface.write(Reg::INT_EN_0, int_en_0)?;
+        let int_8 = 0
+            | (cfg.tap_quiet_duration as u8) << 7
+            | (cfg.tap_shock_duration as u8) << 6
+            | cfg.double_tap_duration as u8;
+        self.interface.write(Reg::INT_8, int_8)?;
+        let int_9 = 0
+            | (cfg.tap_wakeup_samples as u8) << 6
+            | cfg.tap_threshold & 0x1f;
+        self.interface.write(Reg::INT_9, int_9)?;
+        let int_map_0 = self.interface.read(Reg::INT_MAP_0)?
+            | (cfg.map_single_to_int1 as u8) << 5
+            | (cfg.map_double_to_int1 as u8) << 4;
+        self.interface.write(Reg::INT_MAP_0, int_map_0)?;
+        let int_map_2 = self.interface.read(Reg::INT_MAP_2)?
+            | (cfg.map_single_to_int2 as u8) << 5
+            | (cfg.map_double_to_int2 as u8) << 4;
+        self.interface.write(Reg::INT_MAP_2, int_map_2)
     }
 
     /// Set the FIFO mode for events
     pub fn fifo_set_mode(&mut self, mode: FIFOConfig) -> Result<(), E> {
-        let value = (mode as u8) << 6;
-
-        self.write(REG_FIFO_CONFIG, &[value])?;
-
-        Ok(())
+        self.interface.write(Reg::FIFO_CONFIG_1, (mode as u8) << 6)
     }
 
     /// How many events are stored in the FIFO
     pub fn fifo_size(&mut self) -> Result<u8, E> {
-        let value = self.single_read(REG_FIFO_STATUS)?;
+        let value = self.interface.read(Reg::FIFO_STATUS)?;
         Ok(value & 0b0111_1111)
     }
 
     /// Did the event FIFO overflow?
     pub fn fifo_overflow(&mut self) -> Result<bool, E> {
-        let value = self.single_read(REG_FIFO_STATUS)?;
+        let value = self.interface.read(Reg::FIFO_STATUS)?;
         Ok(value & 0b1000_0000 != 0)
     }
 
@@ -269,7 +369,7 @@ where
         // TODO: Support different number of X, Y, and Z elements
         let mut index: usize = 0;
         for item in data {
-            self.read(REG_FIFO_DATA, &mut out)?;
+            self.interface.read_multiple(Reg::FIFO_DATA, &mut out)?;
 
             item.changed = out[index] & 0x01 != 0;
             item.value = u16::from(out[index + 1]);
@@ -285,13 +385,15 @@ where
     }
 
     /// Grab an axis and create an AxisData
-    pub fn element_get(&mut self, register: u8) -> Result<AxisData, E> {
+    pub fn element_get(&mut self, reg: Reg) -> Result<AxisData, E> {
         let mut out = [0u8; 2];
 
-        self.read(register, &mut out)?;
+        self.interface.read_multiple(reg, &mut out)?;
 
+        let unmasked = (out[1] as u16) << 8 | out[0] as u16;
+        let mask = 0xffffu16 << (16 - B::DATA_WIDTH);
         let item = AxisData {
-            value: u16::from(out[1]),
+            value: unmasked & mask,
             changed: out[0] & 0x01 != 0,
         };
 
@@ -300,17 +402,17 @@ where
 
     /// Grab data for X axis
     pub fn axis_x(&mut self) -> Result<AxisData, E> {
-        Ok(self.element_get(REG_XAXIS)?)
+        Ok(self.element_get(Reg::ACCD_X_LSB)?)
     }
 
     /// Grab data for Y axis
     pub fn axis_y(&mut self) -> Result<AxisData, E> {
-        Ok(self.element_get(REG_YAXIS)?)
+        Ok(self.element_get(Reg::ACCD_Y_LSB)?)
     }
 
     /// Grab data for Z axis
     pub fn axis_z(&mut self) -> Result<AxisData, E> {
-        Ok(self.element_get(REG_ZAXIS)?)
+        Ok(self.element_get(Reg::ACCD_Z_LSB)?)
     }
 
     /// How many writes are left in the device's EEPROM. Each write will decrement
@@ -319,16 +421,17 @@ where
     pub fn eeprom_writes_remaining(&mut self) -> Result<u8, E> {
         // The top four bits store the value. Using magic values here
 
-        let value = self.single_read(REG_EEPROM_CONTROL)?;
+        let value = self.interface.read(Reg::TRIM_NVM_CTRL)?;
         let value = (value | 0b1111_0000) >> 4;
 
         Ok(value)
     }
 
-    /// Pull values from internal EEPROM
-    pub fn eeprom_data(&mut self) -> Result<[u8; EEPROM_LENGTH], E> {
-        let mut out = [0u8; EEPROM_LENGTH];
-        self.read(REG_EEPROM_START, &mut out)?;
+    /// Pull values from internal EEPROM. Due to limitations in Rust, this always returns an array
+    /// of length MAX_NVM_LENGTH even though some implementations use only a part of it.
+    pub fn eeprom_data(&mut self) -> Result<[u8; MAX_NVM_LENGTH], E> {
+        let mut out = [0u8; MAX_NVM_LENGTH];
+        self.interface.read_multiple(B::NVM_START, &mut out[..B::NVM_LENGTH])?;
 
         Ok(out)
     }
