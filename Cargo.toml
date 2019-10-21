@@ -12,3 +12,4 @@ repository = "https://github.com/RandomInsano/bma2xx"
 
 [dependencies]
 embedded-hal = "0.2.2"
+bitfield = "0.13.2"

@@ -111,6 +111,7 @@
 #![deny(warnings)]
 
 extern crate embedded_hal as hal;
+extern crate bitfield;
 
 pub mod interface;
 pub mod register;
@@ -119,6 +120,7 @@ use core::fmt;
 //use hal::blocking::{i2c, spi};
 use crate::register::Reg;
 use crate::interface::DigitalInterface;
+use bitfield::{Bit, BitRange};
 
 const MAX_NVM_LENGTH: usize = 8;
 
@@ -215,11 +217,29 @@ pub enum TapShockDuration {
     _75ms = 1,
 }
 
+impl From<TapShockDuration> for bool {
+    fn from(d: TapShockDuration) -> bool {
+        match d {
+            TapShockDuration::_50ms => false,
+            TapShockDuration::_75ms => true,
+        }
+    }
+}
+
 #[allow(missing_docs)]
 #[derive(Copy, Clone, Debug)]
 pub enum TapQuietDuration {
     _30ms = 0,
     _20ms = 1,
+}
+
+impl From<TapQuietDuration> for bool {
+    fn from(d: TapQuietDuration) -> bool {
+        match d {
+            TapQuietDuration::_30ms => false,
+            TapQuietDuration::_20ms => true,
+        }
+    }
 }
 
 #[allow(missing_docs)]
@@ -316,26 +336,26 @@ where
 
     /// Configure tap sensing.
     pub fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), E> {
-        let int_en_0 = self.interface.read(Reg::INT_EN_0)?
-            | (cfg.single_tap_enabled as u8) << 5
-            | (cfg.double_tap_enabled as u8) << 4;
+        let mut int_en_0 = self.interface.read(Reg::INT_EN_0)?;
+        int_en_0.set_bit(4, cfg.double_tap_enabled);
+        int_en_0.set_bit(5, cfg.single_tap_enabled);
         self.interface.write(Reg::INT_EN_0, int_en_0)?;
-        let int_8 = 0
-            | (cfg.tap_quiet_duration as u8) << 7
-            | (cfg.tap_shock_duration as u8) << 6
-            | cfg.double_tap_duration as u8;
+        let mut int_8 = 0u8;
+        int_8.set_bit_range(0, 2, cfg.double_tap_duration as u8);
+        int_8.set_bit(6, cfg.tap_shock_duration.into());
+        int_8.set_bit(7, cfg.tap_quiet_duration.into());
         self.interface.write(Reg::INT_8, int_8)?;
-        let int_9 = 0
-            | (cfg.tap_wakeup_samples as u8) << 6
-            | cfg.tap_threshold & 0x1f;
+        let mut int_9 = 0u8;
+        int_9.set_bit_range(0, 4, cfg.tap_threshold & 0x1f);
+        int_9.set_bit_range(6, 7, cfg.tap_wakeup_samples as u8);
         self.interface.write(Reg::INT_9, int_9)?;
-        let int_map_0 = self.interface.read(Reg::INT_MAP_0)?
-            | (cfg.map_single_to_int1 as u8) << 5
-            | (cfg.map_double_to_int1 as u8) << 4;
+        let mut int_map_0 = self.interface.read(Reg::INT_MAP_0)?;
+        int_map_0.set_bit(4, cfg.map_double_to_int1);
+        int_map_0.set_bit(5, cfg.map_single_to_int1);
         self.interface.write(Reg::INT_MAP_0, int_map_0)?;
-        let int_map_2 = self.interface.read(Reg::INT_MAP_2)?
-            | (cfg.map_single_to_int2 as u8) << 5
-            | (cfg.map_double_to_int2 as u8) << 4;
+        let mut int_map_2 = self.interface.read(Reg::INT_MAP_2)?;
+        int_map_2.set_bit(4, cfg.map_double_to_int2);
+        int_map_2.set_bit(5, cfg.map_single_to_int2);
         self.interface.write(Reg::INT_MAP_2, int_map_2)
     }
 
