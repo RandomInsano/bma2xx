@@ -16,7 +16,7 @@
 //!
 //! Specifically, these chips should work with the library now, but
 //! you wouldn't benefit from the enhanced resolution.
-//! 
+//!
 //! More info on the product line from Bosch's website:
 //! https://www.bosch-sensortec.com/bst/products/all_products/bma222e
 //!
@@ -110,16 +110,16 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-extern crate embedded_hal as hal;
 extern crate bitfield;
+extern crate embedded_hal as hal;
 
 pub mod interface;
 pub mod register;
 
 use core::fmt;
 //use hal::blocking::{i2c, spi};
-use crate::register::Reg;
 use crate::interface::DigitalInterface;
+use crate::register::Reg;
 use bitfield::{Bit, BitRange};
 
 const MAX_NVM_LENGTH: usize = 8;
@@ -156,6 +156,60 @@ impl Bma2xx for Bma222e {
     const DATA_WIDTH: usize = 8;
 }
 
+/// Extension trait for a typical BMA2XX-like accelerometer.
+pub trait AccelerometerExt {
+    /// An error that can be thrown by the implementation
+    type Error;
+
+    /// Soft-reset the chip
+    fn reset(&mut self) -> Result<(), Self::Error>;
+
+    /// Read the temperature of the chip and return it in half Kelvins above 23
+    /// degrees Celsius.
+    fn temperature(&mut self) -> Result<u8, Self::Error>;
+
+    /// Return the chip's identifier. While there are many devices in this
+    /// family, this crate was written for the BMA222E and you should
+    /// compare this value to REG_CHIPID.
+    fn who_am_i(&mut self) -> Result<u8, Self::Error>;
+
+    /// Configure tap sensing.
+    fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), Self::Error>;
+
+    /// Set the FIFO mode for events
+    fn fifo_set_mode(&mut self, mode: FIFOConfig) -> Result<(), Self::Error>;
+
+    /// How many events are stored in the FIFO
+    fn fifo_size(&mut self) -> Result<u8, Self::Error>;
+
+    /// Did the event FIFO overflow?
+    fn fifo_overflow(&mut self) -> Result<bool, Self::Error>;
+
+    /// Pull accelerometer data from the FIFO.
+    fn fifo_get(&mut self, data: &mut [AxisData]) -> Result<(), Self::Error>;
+
+    /// Grab an axis and create an AxisData
+    fn element_get(&mut self, reg: Reg) -> Result<AxisData, Self::Error>;
+
+    /// Grab data for X axis
+    fn axis_x(&mut self) -> Result<AxisData, Self::Error>;
+
+    /// Grab data for Y axis
+    fn axis_y(&mut self) -> Result<AxisData, Self::Error>;
+
+    /// Grab data for Z axis
+    fn axis_z(&mut self) -> Result<AxisData, Self::Error>;
+
+    /// How many writes are left in the device's EEPROM. Each write will decrement
+    /// this counter and the chip will deny writes at zero, so use any writes
+    /// sparingly. The counter is only four bits wide (16 total writes)
+    fn eeprom_writes_remaining(&mut self) -> Result<u8, Self::Error>;
+
+    /// Pull values from internal EEPROM. Due to limitations in Rust, this always returns an array
+    /// of length MAX_NVM_LENGTH even though some implementations use only a part of it.
+    fn eeprom_data(&mut self) -> Result<[u8; MAX_NVM_LENGTH], Self::Error>;
+}
+
 /// A usable BMA2xx accelerometer.
 pub struct Accelerometer<DigitalInterface, Bma2xx> {
     interface: DigitalInterface,
@@ -166,7 +220,7 @@ impl<I, B> Accelerometer<I, B> {
     /// Combine a digital interface and a device specification to create a
     /// usable accelerometer.
     pub fn new(interface: I, device: B) -> Accelerometer<I, B> {
-        Accelerometer{
+        Accelerometer {
             interface: interface,
             _device: device,
         }
@@ -310,32 +364,27 @@ impl Default for TapSensingConfig {
     }
 }
 
-impl<I, E, B> Accelerometer<I, B>
+impl<I, E, B> AccelerometerExt for Accelerometer<I, B>
 where
     I: DigitalInterface<Error = E>,
     B: Bma2xx,
 {
-    /// Soft-reset the chip
-    pub fn reset(&mut self) -> Result<(), E> {
+    type Error = E;
+
+    fn reset(&mut self) -> Result<(), E> {
         self.interface.write(Reg::BGW_SOFTRESET, RESET_MAGIC_VALUE)
     }
 
-    /// Read the temperature of the chip and return it in half Kelvins above 23
-    /// degrees Celsius.
-    pub fn temperature(&mut self) -> Result<u8, E> {
+    fn temperature(&mut self) -> Result<u8, E> {
         let value = self.interface.read(Reg::ACCD_TEMP)?;
         Ok(value)
     }
 
-    /// Return the chip's identifier. While there are many devices in this
-    /// family, this crate was written for the BMA222E and you should
-    /// compare this value to REG_CHIPID.
-    pub fn who_am_i(&mut self) -> Result<u8, E> {
+    fn who_am_i(&mut self) -> Result<u8, E> {
         Ok(self.interface.read(Reg::BGW_CHIPID)?)
     }
 
-    /// Configure tap sensing.
-    pub fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), E> {
+    fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), E> {
         let mut int_en_0 = self.interface.read(Reg::INT_EN_0)?;
         int_en_0.set_bit(4, cfg.double_tap_enabled);
         int_en_0.set_bit(5, cfg.single_tap_enabled);
@@ -359,25 +408,21 @@ where
         self.interface.write(Reg::INT_MAP_2, int_map_2)
     }
 
-    /// Set the FIFO mode for events
-    pub fn fifo_set_mode(&mut self, mode: FIFOConfig) -> Result<(), E> {
+    fn fifo_set_mode(&mut self, mode: FIFOConfig) -> Result<(), E> {
         self.interface.write(Reg::FIFO_CONFIG_1, (mode as u8) << 6)
     }
 
-    /// How many events are stored in the FIFO
-    pub fn fifo_size(&mut self) -> Result<u8, E> {
+    fn fifo_size(&mut self) -> Result<u8, E> {
         let value = self.interface.read(Reg::FIFO_STATUS)?;
         Ok(value & 0b0111_1111)
     }
 
-    /// Did the event FIFO overflow?
-    pub fn fifo_overflow(&mut self) -> Result<bool, E> {
+    fn fifo_overflow(&mut self) -> Result<bool, E> {
         let value = self.interface.read(Reg::FIFO_STATUS)?;
         Ok(value & 0b1000_0000 != 0)
     }
 
-    /// Pull accelerometer data from the FIFO.
-    pub fn fifo_get(&mut self, data: &mut [AxisData]) -> Result<(), E> {
+    fn fifo_get(&mut self, data: &mut [AxisData]) -> Result<(), E> {
         // Implementation detail here: Ideally you would use a longer read buffer
         // to avoid register selection overhead on I2C, but we can't dynamically
         // size the array length in Rust yet (as of 1.32)
@@ -404,8 +449,7 @@ where
         Ok(())
     }
 
-    /// Grab an axis and create an AxisData
-    pub fn element_get(&mut self, reg: Reg) -> Result<AxisData, E> {
+    fn element_get(&mut self, reg: Reg) -> Result<AxisData, E> {
         let mut out = [0u8; 2];
 
         self.interface.read_multiple(reg, &mut out)?;
@@ -420,25 +464,19 @@ where
         Ok(item)
     }
 
-    /// Grab data for X axis
-    pub fn axis_x(&mut self) -> Result<AxisData, E> {
+    fn axis_x(&mut self) -> Result<AxisData, E> {
         Ok(self.element_get(Reg::ACCD_X_LSB)?)
     }
 
-    /// Grab data for Y axis
-    pub fn axis_y(&mut self) -> Result<AxisData, E> {
+    fn axis_y(&mut self) -> Result<AxisData, E> {
         Ok(self.element_get(Reg::ACCD_Y_LSB)?)
     }
 
-    /// Grab data for Z axis
-    pub fn axis_z(&mut self) -> Result<AxisData, E> {
+    fn axis_z(&mut self) -> Result<AxisData, E> {
         Ok(self.element_get(Reg::ACCD_Z_LSB)?)
     }
 
-    /// How many writes are left in the device's EEPROM. Each write will decrement
-    /// this counter and the chip will deny writes at zero, so use any writes
-    /// sparingly. The counter is only four bits wide (16 total writes)
-    pub fn eeprom_writes_remaining(&mut self) -> Result<u8, E> {
+    fn eeprom_writes_remaining(&mut self) -> Result<u8, E> {
         // The top four bits store the value. Using magic values here
 
         let value = self.interface.read(Reg::TRIM_NVM_CTRL)?;
@@ -447,11 +485,10 @@ where
         Ok(value)
     }
 
-    /// Pull values from internal EEPROM. Due to limitations in Rust, this always returns an array
-    /// of length MAX_NVM_LENGTH even though some implementations use only a part of it.
-    pub fn eeprom_data(&mut self) -> Result<[u8; MAX_NVM_LENGTH], E> {
+    fn eeprom_data(&mut self) -> Result<[u8; MAX_NVM_LENGTH], E> {
         let mut out = [0u8; MAX_NVM_LENGTH];
-        self.interface.read_multiple(B::NVM_START, &mut out[..B::NVM_LENGTH])?;
+        self.interface
+            .read_multiple(B::NVM_START, &mut out[..B::NVM_LENGTH])?;
 
         Ok(out)
     }
