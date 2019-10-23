@@ -14,9 +14,6 @@
 //! * BMA255 - 12bit resolution
 //! * BMA280 - 14bit resolution
 //!
-//! Specifically, these chips should work with the library now, but
-//! you wouldn't benefit from the enhanced resolution.
-//!
 //! More info on the product line from Bosch's website:
 //! https://www.bosch-sensortec.com/bst/products/all_products/bma222e
 //!
@@ -117,12 +114,12 @@ pub mod interface;
 pub mod register;
 
 use core::fmt;
-//use hal::blocking::{i2c, spi};
 use crate::interface::DigitalInterface;
 use crate::register::Reg;
 use bitfield::{Bit, BitRange};
 
 const MAX_NVM_LENGTH: usize = 8;
+const RESET_MAGIC_VALUE: u8 = 0xb6;
 
 /// Implements chip-specific values.
 pub trait Bma2xx {
@@ -226,8 +223,6 @@ impl<I, B> Accelerometer<I, B> {
         }
     }
 }
-
-const RESET_MAGIC_VALUE: u8 = 0xb6;
 
 /// Various FIFO operating modes
 pub enum FIFOConfig {

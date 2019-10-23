@@ -24,6 +24,9 @@ pub const I2C_DEFAULT_ADDRESS: u8 = 0x18;
 /// Alternate I2C device address when SDO pin is pulled to VDDIO.
 pub const I2C_ALTERNATE_ADDRESS: u8 = 0x19;
 
+const SPI_READ_BIT: u8 = 0x80;
+const SPI_WRITE_MASK: u8 = 0x7f;
+
 /// Represents digital interface with a bma2xx device over I2C.
 pub struct I2CInterface<I2C> {
     device: I2C,
@@ -83,16 +86,13 @@ where
     }
 }
 
-const SPI_READ_BIT: u8 = 0x80;
-const SPI_WRITE_MASK: u8 = 0x7f;
-
 /// An error caused by the SPI digital interface.
 #[derive(Debug, Copy, Clone)]
 pub enum SPIError<E, E2> {
     /// SPI bus I/O error
     BusError(E),
-    /// Error setting the nCS pin
-    NCSError(E2),
+    /// Error setting the nSS pin
+    NSSError(E2),
 }
 
 /// Represents digital interface with a bma2xx device over SPI.
@@ -114,23 +114,23 @@ where
             nss: nss,
         };
 
-        result.nss.set_high().map_err(SPIError::NCSError)?;
+        result.nss.set_high().map_err(SPIError::NSSError)?;
         Ok(result)
     }
 
     #[inline]
     fn transfer<'w>(&mut self, buffer: &'w mut [u8]) -> Result<&'w [u8], SPIError<E, EO>> {
-        self.nss.set_low().map_err(SPIError::NCSError)?;
+        self.nss.set_low().map_err(SPIError::NSSError)?;
         let result = self.device.transfer(buffer).map_err(SPIError::BusError);
-        self.nss.set_high().map_err(SPIError::NCSError)?;
+        self.nss.set_high().map_err(SPIError::NSSError)?;
         result
     }
 
     #[inline]
     fn write(&mut self, buffer: &[u8]) -> Result<(), SPIError<E, EO>> {
-        self.nss.set_low().map_err(SPIError::NCSError)?;
+        self.nss.set_low().map_err(SPIError::NSSError)?;
         let result = self.device.write(buffer).map_err(SPIError::BusError);
-        self.nss.set_high().map_err(SPIError::NCSError)?;
+        self.nss.set_high().map_err(SPIError::NSSError)?;
         result
     }
 }
