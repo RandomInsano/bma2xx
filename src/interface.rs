@@ -88,7 +88,7 @@ const SPI_WRITE_MASK: u8 = 0x7f;
 
 /// An error caused by the SPI digital interface.
 #[derive(Debug, Copy, Clone)]
-pub enum SpiError<E, E2> {
+pub enum SPIError<E, E2> {
     /// SPI bus I/O error
     BusError(E),
     /// Error setting the nCS pin
@@ -108,29 +108,29 @@ where
 {
     /// Create a new digital interface based on a SPI device and a
     /// notSlaveSelect OutputPin.
-    pub fn new(device: SPI, nss: NSS) -> Result<SPIInterface<SPI, NSS>, SpiError<E, EO>> {
+    pub fn new(device: SPI, nss: NSS) -> Result<SPIInterface<SPI, NSS>, SPIError<E, EO>> {
         let mut result = SPIInterface {
             device: device,
             nss: nss,
         };
 
-        result.nss.set_high().map_err(SpiError::NCSError)?;
+        result.nss.set_high().map_err(SPIError::NCSError)?;
         Ok(result)
     }
 
     #[inline]
-    fn transfer<'w>(&mut self, buffer: &'w mut [u8]) -> Result<&'w [u8], SpiError<E, EO>> {
-        self.nss.set_low().map_err(SpiError::NCSError)?;
-        let result = self.device.transfer(buffer).map_err(SpiError::BusError);
-        self.nss.set_high().map_err(SpiError::NCSError)?;
+    fn transfer<'w>(&mut self, buffer: &'w mut [u8]) -> Result<&'w [u8], SPIError<E, EO>> {
+        self.nss.set_low().map_err(SPIError::NCSError)?;
+        let result = self.device.transfer(buffer).map_err(SPIError::BusError);
+        self.nss.set_high().map_err(SPIError::NCSError)?;
         result
     }
 
     #[inline]
-    fn write(&mut self, buffer: &[u8]) -> Result<(), SpiError<E, EO>> {
-        self.nss.set_low().map_err(SpiError::NCSError)?;
-        let result = self.device.write(buffer).map_err(SpiError::BusError);
-        self.nss.set_high().map_err(SpiError::NCSError)?;
+    fn write(&mut self, buffer: &[u8]) -> Result<(), SPIError<E, EO>> {
+        self.nss.set_low().map_err(SPIError::NCSError)?;
+        let result = self.device.write(buffer).map_err(SPIError::BusError);
+        self.nss.set_high().map_err(SPIError::NCSError)?;
         result
     }
 }
@@ -140,7 +140,7 @@ where
     SPI: spi::Transfer<u8, Error = E> + spi::Write<u8, Error = E>,
     NSS: OutputPin<Error = EO>,
 {
-    type Error = SpiError<E, EO>;
+    type Error = SPIError<E, EO>;
 
     fn write_multiple(&mut self, register: Reg, data: &[u8]) -> Result<(), Self::Error> {
         let mut input = [0; 16]; // Can't dynamically size this, so 16 it is!
