@@ -170,6 +170,9 @@ pub trait AccelerometerExt {
     /// compare this value to REG_CHIPID.
     fn who_am_i(&mut self) -> Result<u8, Self::Error>;
 
+    /// Set the accelerometer g-range.
+    fn set_range(&mut self, range: RangeConfig) -> Result<(), Self::Error>;
+
     /// Configure tap sensing.
     fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), Self::Error>;
 
@@ -313,6 +316,15 @@ pub enum TapWakeupSamples {
     _16samples = 3,
 }
 
+#[allow(missing_docs)]
+#[derive(Copy, Clone, Debug)]
+pub enum RangeConfig {
+    _2g = 3,
+    _4g = 5,
+    _8g = 8,
+    _16g = 12,
+}
+
 /// Configuration for tap sensing.
 #[derive(Copy, Clone, Debug)]
 pub struct TapSensingConfig {
@@ -377,6 +389,12 @@ where
 
     fn who_am_i(&mut self) -> Result<u8, E> {
         Ok(self.interface.read(Reg::BGW_CHIPID)?)
+    }
+
+    fn set_range(&mut self, range: RangeConfig) -> Result<(), Self::Error> {
+        let mut pmu_range = 0;
+        pmu_range.set_bit_range(0, 3, range as u8);
+        self.interface.write(Reg::PMU_RANGE, pmu_range)
     }
 
     fn configure_tap_sensing(&mut self, cfg: TapSensingConfig) -> Result<(), E> {
