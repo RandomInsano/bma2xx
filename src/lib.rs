@@ -393,7 +393,7 @@ where
 
     fn set_range(&mut self, range: RangeConfig) -> Result<(), Self::Error> {
         let mut pmu_range = 0;
-        pmu_range.set_bit_range(0, 3, range as u8);
+        pmu_range.set_bit_range(3, 0, range as u8);
         self.interface.write(Reg::PMU_RANGE, pmu_range)
     }
 
@@ -403,13 +403,13 @@ where
         int_en_0.set_bit(5, cfg.single_tap_enabled);
         self.interface.write(Reg::INT_EN_0, int_en_0)?;
         let mut int_8 = 0u8;
-        int_8.set_bit_range(0, 2, cfg.double_tap_duration as u8);
+        int_8.set_bit_range(2, 0, cfg.double_tap_duration as u8);
         int_8.set_bit(6, cfg.tap_shock_duration.into());
         int_8.set_bit(7, cfg.tap_quiet_duration.into());
         self.interface.write(Reg::INT_8, int_8)?;
         let mut int_9 = 0u8;
-        int_9.set_bit_range(0, 4, cfg.tap_threshold & 0x1f);
-        int_9.set_bit_range(6, 7, cfg.tap_wakeup_samples as u8);
+        int_9.set_bit_range(4, 0, cfg.tap_threshold & 0x1f);
+        int_9.set_bit_range(7, 6, cfg.tap_wakeup_samples as u8);
         self.interface.write(Reg::INT_9, int_9)?;
         let mut int_map_0 = self.interface.read(Reg::INT_MAP_0)?;
         int_map_0.set_bit(4, cfg.map_double_to_int1);
