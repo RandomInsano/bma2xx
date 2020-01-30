@@ -4,6 +4,13 @@ use crate::register::Reg;
 use hal::blocking::{i2c, spi};
 use hal::digital::v2::OutputPin;
 
+fn infallible<T>(r: core::result::Result<T, core::convert::Infallible>) -> T {
+    match r {
+        Ok(x) => x,
+        Err(never) => match never {},
+    }
+}
+
 /// Represents a digital interface with a bma2xx.
 pub trait DigitalInterface {
     /// The type of errors the underlying digital interface generates.
@@ -86,61 +93,52 @@ where
     }
 }
 
-/// An error caused by the SPI digital interface.
-#[derive(Debug, Copy, Clone)]
-pub enum SPIError<E, E2> {
-    /// SPI bus I/O error
-    BusError(E),
-    /// Error setting the nSS pin
-    NSSError(E2),
-}
-
 /// Represents digital interface with a bma2xx device over SPI.
 pub struct SPIInterface<SPI, NSS> {
     device: SPI,
     nss: NSS,
 }
 
-impl<SPI, NSS, E, EO> SPIInterface<SPI, NSS>
+impl<SPI, NSS, E> SPIInterface<SPI, NSS>
 where
     SPI: spi::Transfer<u8, Error = E> + spi::Write<u8, Error = E>,
-    NSS: OutputPin<Error = EO>,
+    NSS: OutputPin<Error = core::convert::Infallible>,
 {
     /// Create a new digital interface based on a SPI device and a
     /// notSlaveSelect OutputPin.
-    pub fn new(device: SPI, nss: NSS) -> Result<SPIInterface<SPI, NSS>, SPIError<E, EO>> {
+    pub fn new(device: SPI, nss: NSS) -> SPIInterface<SPI, NSS> {
         let mut result = SPIInterface {
             device: device,
             nss: nss,
         };
 
-        result.nss.set_high().map_err(SPIError::NSSError)?;
-        Ok(result)
-    }
-
-    #[inline]
-    fn transfer<'w>(&mut self, buffer: &'w mut [u8]) -> Result<&'w [u8], SPIError<E, EO>> {
-        self.nss.set_low().map_err(SPIError::NSSError)?;
-        let result = self.device.transfer(buffer).map_err(SPIError::BusError);
-        self.nss.set_high().map_err(SPIError::NSSError)?;
+        infallible(result.nss.set_high());
         result
     }
 
     #[inline]
-    fn write(&mut self, buffer: &[u8]) -> Result<(), SPIError<E, EO>> {
-        self.nss.set_low().map_err(SPIError::NSSError)?;
-        let result = self.device.write(buffer).map_err(SPIError::BusError);
-        self.nss.set_high().map_err(SPIError::NSSError)?;
+    fn transfer<'w>(&mut self, buffer: &'w mut [u8]) -> Result<&'w [u8], E> {
+        infallible(self.nss.set_low());
+        let result = self.device.transfer(buffer);
+        infallible(self.nss.set_high());
+        result
+    }
+
+    #[inline]
+    fn write(&mut self, buffer: &[u8]) -> Result<(), E> {
+        infallible(self.nss.set_low());
+        let result = self.device.write(buffer);
+        infallible(self.nss.set_high());
         result
     }
 }
 
-impl<SPI, NSS, E, EO> DigitalInterface for SPIInterface<SPI, NSS>
+impl<SPI, NSS, E> DigitalInterface for SPIInterface<SPI, NSS>
 where
     SPI: spi::Transfer<u8, Error = E> + spi::Write<u8, Error = E>,
-    NSS: OutputPin<Error = EO>,
+    NSS: OutputPin<Error = core::convert::Infallible>,
 {
-    type Error = SPIError<E, EO>;
+    type Error = E;
 
     fn write_multiple(&mut self, register: Reg, data: &[u8]) -> Result<(), Self::Error> {
         let mut input = [0; 16]; // Can't dynamically size this, so 16 it is!
